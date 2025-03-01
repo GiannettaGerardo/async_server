@@ -8,7 +8,7 @@ project(async_backend)            # this sets the project name
 # These instructions search the directory tree when cmake is
 # invoked and put all files that match the pattern in the variables 
 # `sources` and `data`.
-file(GLOB_RECURSE sources      src/main/*.cpp src/main/*.h)
+file(GLOB_RECURSE sources      src/main/*.cpp src/main/*.hpp)
 file(GLOB_RECURSE sources_test src/test/*.cpp)
 # You can use set(sources src/main.cpp) etc if you don't want to
 # use globbing to find files automatically.
@@ -23,7 +23,7 @@ add_executable(AsyncBackend ${sources} ${data})
 
 # Just for example add some compiler flags.
 target_compile_options(AsyncBackend PUBLIC 
-  -std=c++1y 
+  -std=c++20
   -g3 
   -pedantic
   -Wall 

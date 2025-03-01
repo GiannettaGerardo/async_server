@@ -1,33 +1,36 @@
-#include <cstdlib>
 #include <iostream>
-#include "async_epoll_event_queue.hpp"
-#include "async_server.hpp"
+#include <memory>
+#include "epoll_event_queue.hpp"
+#include "request_dispatcher.hpp"
+#include "server.hpp"
 
 int main(int argc, char *argv[]) 
 {
     if (argc != 4) {
-        std::cerr << "Invalid arguments number...\nEnter in this order: host port max_events_number\nNote: host can be a DNS domain or an IPv4 address.\n";
+        std::cerr << "Invalid arguments number...\nUse in this way: ./async_server <host> <port> <max_events_number>\nNote: host can be a DNS domain or an IPv4 address.\n";
         return 1;
     }
+    int return_value = 0;
+    async::EpollEventQueue* event_queue = nullptr;
 
     try {
 
         async::AsyncSocketData server_socket(argv[1], argv[2], argv[3]);
-        auto event_queue = std::make_unique<async::EpollEventQueue>(server_socket.getMaxEvents());
-        async::AsyncServer async_server(std::move(server_socket), std::move(event_queue));
+        event_queue = new async::EpollEventQueue(server_socket.getMaxEvents());
+        async::AsyncServer async_server(
+            server_socket, 
+            event_queue,
+            std::make_unique<async::RequestDispatcher>()
+        );
         async_server.runEventLoop();
 
     }
-    /*catch(async::AsyncSocketException& e) {
-        std::cerr << e.what() << std::endl;
-    }
-    catch(async::ServerSettingsException& e) {
-        std::cerr << e.what() << std::endl;
-    }
-    catch(async::EventQueueException& e) {
-        std::cerr << e.what() << std::endl;
-    }*/
     catch(std::exception& e) {
         std::cerr << e.what() << std::endl;
+        return_value = 1;
     }
+    if (event_queue != nullptr)
+        delete event_queue;
+
+    return return_value;
 }

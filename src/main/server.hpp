@@ -1,25 +1,21 @@
 #pragma once
 
+#include <any>
 #include <arpa/inet.h>
 #include <memory>
 #include <stdexcept>
-#include <stdio.h>     // for fprintf()
-#include <string>
-#include <stdlib.h>
-#include <stdint.h>    // for types uint8_t, ecc.
-#include <unistd.h>    // for close(), read()
-#include <sys/epoll.h> // for epoll_create1(), epoll_ctl(), struct epoll_event
-#include <string.h>    
-#include <sys/types.h>
-#include <sys/socket.h>
+#include <string.h>
 #include <netdb.h>
 #include <fcntl.h>
-#include <sys/epoll.h>
 #include <csignal>
 #include <sys/signalfd.h>
 #include <utility>
-#include "async_event_queue.hpp"
-#include "async_socket.hpp"
+#include <vector>
+#include "epoll_event_queue.hpp"
+#include "request.hpp"
+#include "request_dispatcher.hpp"
+#include "socket.hpp"
+#include "promise.hpp"
 
 namespace async {
 
@@ -30,12 +26,13 @@ public:
 
 class AsyncServer {
 private:
-    using event_queue_ptr = std::unique_ptr<async::EventQueue<int, int>>;
-
-    async::AsyncSocketData socket_data;
+    using event_queue_ptr = async::EpollEventQueue * ;
+    using dispatcher_ptr = std::unique_ptr<async::RequestDispatcher>;
+    
     int server_fd;
     int sigint_fd;
     event_queue_ptr eventQueue;
+    dispatcher_ptr dispatcher;
 
     void setSIGINT(sigset_t& mask) 
     {
@@ -46,7 +43,7 @@ private:
         }
     }
 
-    void createAndBindSocket() 
+    void createAndBindSocket(async::AsyncSocketData& socket_data) 
     {
         // Definizione dei parametri della connessione
         struct sockaddr_in address;
@@ -137,7 +134,7 @@ private:
             return;
         }
 
-        if (! eventQueue->addEvent(client_socket_fd)) {
+        if (! eventQueue->addEvent(client_socket_fd, true)) {
             if (has_client_info)
                 fprintf(stderr, "Cannot add client socket %d (host=%s, port=%s) to the Event Queue. Closing socket...\n", client_socket_fd, hbuf, sbuf);
             else
@@ -148,24 +145,24 @@ private:
     }
 
 public:
-    AsyncServer(async::AsyncSocketData&& _socket_data, event_queue_ptr _eventQueue)
-    :   socket_data(std::move(_socket_data)),
-        eventQueue{std::move(_eventQueue)}
+    AsyncServer(async::AsyncSocketData& socket_data, event_queue_ptr _eventQueue, dispatcher_ptr&& _dispatcher)
+    :   eventQueue{_eventQueue},
+        dispatcher{std::move(_dispatcher)}
     {
         sigset_t mask;
         setSIGINT(mask);
-        createAndBindSocket();
+        createAndBindSocket(socket_data);
         if(! makeSocketNonBlocking(server_fd)) {
             close(server_fd);
             throw async::ServerSettingsException("Server Socket cannot be made non blocking...");
         }
         startListening();
-        if (! eventQueue->addEvent(server_fd)) {
+        if (! eventQueue->addEvent(server_fd, true)) {
             close(server_fd);
             throw async::ServerSettingsException("Cannot add server_fd to event queue...");
         }
         setupSignalFd(mask);
-        if (! eventQueue->addEvent(sigint_fd)) {
+        if (! eventQueue->addEvent(sigint_fd, false)) {
             close(server_fd);
             close(sigint_fd);
             throw async::ServerSettingsException("Cannot add sigint_fd to event queue...");
@@ -175,49 +172,65 @@ public:
     }
 
     ~AsyncServer() {
-        fprintf(stdout, "Closing and cleaning the Async Server...\n");
-        close(sigint_fd);
-        close(server_fd);
         fprintf(stdout, "Async Server closed.\n");
     }
 
     void runEventLoop() 
     {
+        std::vector<Request> requests;
+
         printf("Async Server event loop started...\n");
         while (true) 
-        {     
-            int event_count;
-            try {
-                event_count = eventQueue->waitForEvents(-1);
-            }
-            catch (async::EventQueueException& e) {
-                fprintf(stderr, "EpollEventQueue.waitForEvents(): %s\n", e.what());
-                return;
-            }
+        {
+            const int event_count = eventQueue->waitForEvents(requests.empty() ? -1 : 0);
 
             for(int i = 0; i < event_count; ++i)
             {
-                if (eventQueue->safeSkipErrorEvent(i)) {
+                const int client_fd = eventQueue->getEvent(i);
+
+                if (eventQueue->isError(i)) {
+                    eventQueue->removeEvent(client_fd);
                     continue;
                 }
-                else if (eventQueue->isEvent(i, sigint_fd)) {
+                else if (client_fd == sigint_fd) {
                     printf("Server interrupted...\n");
                     return;
                 }
-                else if (eventQueue->isEvent(i, server_fd)) {
+                else if (client_fd == server_fd) {
                     acceptNewClientSocket();
                 }
                 else {
-                    bool done = false;
-                    const int client_fd = eventQueue->getEvent(i);
+                    Request& request = requests.emplace_back(client_fd, eventQueue);
+                    dispatcher->dispatch(request);
+                    async::Promise& promise = request.getPromise();
+                    promise.then([&r=request](std::any param) {
+                        auto buffer = std::any_cast<std::array<char, 1000>>(param);
+                        int fd = r.getFd();
+                        __uint64_t size = buffer.size();
+
+                        if(-1 == write(1, buffer.data(), size)) {
+                            fprintf(stderr, "Cannot write on the terminal...\n");
+                        }
+
+                        if(-1 == write(fd, buffer.data(), size)) {
+                            fprintf(stderr, "Cannot write on the client socket %d...\n", fd);
+                        }
+                    })
+                    .then([&r=request](std::any param) {
+                        int fd = r.getFd();
+                        const char* testo = "FINE";
+                        if(-1 == write(fd, testo, strlen(testo))) {
+                            fprintf(stderr, "Cannot write on the client socket %d...\n", fd);
+                        }
+                    });
+                    /*bool done = false;
 
                     while(true) {
                         char buf[5] = {};
 
-                        ssize_t count = read(client_fd, buf, sizeof(buf));
+                        const ssize_t count = read(client_fd, buf, sizeof(buf));
                         if(count == -1) {
-                            if(errno != EAGAIN) {
-                                fprintf(stderr, "read\n");
+                            if(errno != EAGAIN && errno != EWOULDBLOCK) {
                                 done = true;
                             }
                             break;
@@ -237,10 +250,20 @@ public:
                             break;
                         }
                     }
-                    if(done) {
+                    if (done) {
                         printf("Closed connection on descriptor %d...\n", client_fd);
-                        close(client_fd);
-                    }
+                        eventQueue->removeEvent(client_fd);
+                    }*/
+                }
+            }
+
+            printf("Requests List Size: %ld\n", requests.size());
+            __uint64_t size = requests.size();
+            for (__uint64_t i = 0; i < size; ++i) {
+                if (! requests[i].getPromise().poll()) {
+                    requests[i--] = requests.back();
+                    requests.pop_back();
+                    --size;
                 }
             }
         }
