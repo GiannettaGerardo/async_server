@@ -24,8 +24,8 @@ Start the server. Parameters are:
 
 Examples:
 ```bash
-  ./AsyncBackend locahost 8080 64
-  ./AsyncBackend 127.0.0.1 8080 64
+  ./build/AsyncServer locahost 8080 64
+  ./build/AsyncServer 127.0.0.1 8080 64
 ```
 
 ## License
