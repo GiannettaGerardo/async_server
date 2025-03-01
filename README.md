@@ -14,9 +14,9 @@ Clone the project and build with CMake
 ```
 
 Start the server. Parameters are:
-1. **<host> -> string**: can be either a domain name or an IPv4 address; 
-2. **<port> -> integer**: service port number;
-3. **<max_events_number> -> integer**: maximum number of events that epoll can handle.
+1. **host -> string**: can be either a domain name or an IPv4 address; 
+2. **port -> integer**: service port number;
+3. **max_events_number -> integer**: maximum number of events that epoll can handle.
 
 Examples:
 ```bash
