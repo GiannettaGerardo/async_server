@@ -10,6 +10,10 @@ Clone the project and build with CMake
 ```bash
   git clone https://github.com/GiannettaGerardo/async_server.git
   cd async_server
+  mkdir build
+  cd build
+  cmake ../CMakeLists.txt
+  cd ..
   cmake --build ./build/
 ```
 

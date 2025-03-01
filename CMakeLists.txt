@@ -1,5 +1,5 @@
-cmake_minimum_required(VERSION 3.5) # setting this is required
-project(async_backend)            # this sets the project name
+cmake_minimum_required(VERSION 3.10) # setting this is required
+project(async_backend CXX)           # this sets the project name
 
 ###############################################################################
 ## file globbing ##############################################################
