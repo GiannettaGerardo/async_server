@@ -7,7 +7,10 @@
 int main(int argc, char *argv[]) 
 {
     if (argc != 4) {
-        std::cerr << "Invalid arguments number...\nUse in this way: ./async_server <host> <port> <max_events_number>\nNote: host can be a DNS domain or an IPv4 address.\n";
+        std::cerr 
+            << "Invalid arguments number...\n" 
+            << "Use in this way: ./async_server <host> <port> <max_events_number>\n"
+            << "Note: host can be a DNS domain or an IPv4 address.\n";
         return 1;
     }
     int return_value = 0;
@@ -20,7 +23,7 @@ int main(int argc, char *argv[])
         async::AsyncServer async_server(
             server_socket, 
             event_queue,
-            std::make_unique<async::RequestDispatcher>()
+            std::make_unique<async::RequestDispatcher>(event_queue)
         );
         async_server.runEventLoop();
 

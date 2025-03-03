@@ -1,26 +1,23 @@
 #pragma once
 
-#include "epoll_event_queue.hpp"
 #include "promise.hpp"
 #include <unistd.h>
+#include <iostream>
 
 namespace async
 {
 
 class Request {
-    using event_queue_ptr = async::EpollEventQueue * ;
-
     int fd;
     async::Promise promise;
-    event_queue_ptr eventQueue;
 
 public:
-    Request(int _fd, event_queue_ptr _eventQueue)
-    :   fd{_fd}, eventQueue{_eventQueue} 
+    Request(int _fd)
+    :   fd{_fd}
     {
         promise
         .then([this](std::any param) {
-            printf("Hello from file descriptor %d\n", fd);
+            std::cout << "Hello from file descriptor " << fd << "\n";
 
             const int bytes = 1000;
             std::array<char, bytes> buffer = {};
@@ -33,11 +30,7 @@ public:
         })
         .error([](std::any param) {
             ssize_t errorCount = std::any_cast<ssize_t>(param);
-            fprintf(stderr, "Error count returned %ld\n", errorCount);
-        })
-        .finally([this](std::any param) {
-            printf("Closed connection on descriptor %d...\n", fd);
-            eventQueue->removeEvent(fd);
+            std::cerr << "Error count returned " << errorCount << "\n";
         });
     }
 
